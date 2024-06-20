@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use std::{
+    borrow::BorrowMut,
     cmp::{self, Ordering},
-    collections::HashMap,
+    collections::{btree_map::Range, HashMap},
     io,
 };
 
@@ -11,16 +12,16 @@ macro_rules! parse_input {
     };
 }
 
-#[derive(Debug, Clone)]
-struct PlayerDetails {
+#[derive(Debug, Clone, Default)]
+struct PlayerTurn {
     pos: i32,
     stun: i32,
     id: i32,
 }
 
-impl PlayerDetails {
+impl PlayerTurn {
     fn default() -> Self {
-        PlayerDetails {
+        PlayerTurn {
             pos: 0,
             stun: 0,
             id: 0,
@@ -28,7 +29,7 @@ impl PlayerDetails {
     }
 
     fn new(my_pos: i32, my_stun: i32, my_id: i32) -> Self {
-        PlayerDetails {
+        PlayerTurn {
             pos: my_pos,
             stun: my_stun,
             id: my_id,
@@ -36,29 +37,21 @@ impl PlayerDetails {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Game {
-    id: u8,
+#[derive(Debug, Clone, Default)]
+struct GameTurn {
+    game_id: u8,
+    run_id: u8,
     track: Option<String>,
     closest_hurdle: Option<usize>,
-    my_player: PlayerDetails,
-    other_players: Vec<PlayerDetails>,
+    my_player: PlayerTurn,
+    other_players: Vec<PlayerTurn>,
 }
 
-impl Game {
-    fn default() -> Self {
-        Game {
-            id: 0,
-            track: None,
-            closest_hurdle: None,
-            my_player: PlayerDetails::default(),
-            other_players: Vec::new(),
-        }
-    }
-
-    fn new(id: u8, my_player: PlayerDetails, other_players: Vec<PlayerDetails>) -> Self {
-        Game {
-            id,
+impl GameTurn {
+    fn new(game_id: u8, run_id: u8, my_player: PlayerTurn, other_players: Vec<PlayerTurn>) -> Self {
+        GameTurn {
+            game_id,
+            run_id,
             track: None,
             closest_hurdle: None,
             my_player,
@@ -95,11 +88,11 @@ impl Game {
         self.track = Some(track);
     }
 
-    fn set_id(&mut self, id: u8) {
-        self.id = id;
+    fn set_run_id(&mut self, id: u8) {
+        self.run_id = id;
     }
 
-    fn add_player_details(&mut self, details: PlayerDetails) {
+    fn add_player_details(&mut self, details: PlayerTurn) {
         self.my_player = details;
     }
 
@@ -122,7 +115,7 @@ impl Game {
             let dist = closest_hurdle - my_pos;
             dbg!(dist);
 
-            let to_move = Game::move_based_on_dist(dist);
+            let to_move = GameTurn::move_based_on_dist(dist);
             if to_move == *"UP" {
                 self.closest_hurdle = None;
             }
@@ -173,41 +166,42 @@ impl Game {
         }
     }
 
-    fn move_with_safest_approach(games: &mut Vec<Self>) -> String {
+    fn safe_approach(game_runs: &mut Vec<Self>) -> String {
         let mut moves = Vec::new();
         let mut stumbles: Vec<u8> = Vec::new();
 
-        for game in games.iter_mut() {
-            let closest_hurdle = game
+        for game_run in game_runs.iter_mut() {
+            let closest_hurdle = game_run
                 .find_closest_hurdle()
-                .or_else(|| Some(game.track.as_ref().unwrap().len()))
+                .or_else(|| Some(game_run.track.as_ref().unwrap().len()))
                 .unwrap();
-            game.closest_hurdle = Some(closest_hurdle);
+            game_run.closest_hurdle = Some(closest_hurdle);
 
-            let dist = closest_hurdle - game.my_player.pos as usize;
-            let curr_move = Game::move_based_on_dist(dist);
+            let dist = closest_hurdle - game_run.my_player.pos as usize;
+            let curr_move = GameTurn::move_based_on_dist(dist);
             moves.push(curr_move);
         }
 
         // Choose the move which stumbles the least
         // Stumble:
         // if my_new_pos >= hurdle_pos => True iff Move is not UP
-        // else => False 
+        // else => False
 
-        // calculate each move's stat for each game
+        // calculate each move's stat for each game_run
         for this_move in moves.iter() {
-            // complete move's stats for all games
+            // complete move's stats for all game_runs
             let mut num_stumbles = 0;
-            for game in games.iter() {
-                let my_pos = game.my_player.pos;
-                let my_new_pos = my_pos + Game::move_to_value(this_move) as i32;
-                let hurdle_pos = game.closest_hurdle.unwrap() as i32;
-                let mv_is_up = *this_move == Game::up();
+            for game_run in game_runs.iter() {
+                let my_pos = game_run.my_player.pos;
+                let my_new_pos = my_pos + GameTurn::move_to_value(this_move) as i32;
+                let hurdle_pos = game_run.closest_hurdle.unwrap() as i32;
+                let mv_is_up = *this_move == GameTurn::up();
                 if my_new_pos >= hurdle_pos && !mv_is_up {
                     num_stumbles += 1;
-                }else if mv_is_up && my_new_pos == hurdle_pos {
-                    num_stumbles+=1;
+                } else if mv_is_up && my_new_pos == hurdle_pos {
+                    num_stumbles += 1;
                 }
+                // think of how any additional stumble in this game run affects
             }
             stumbles.push(num_stumbles);
         }
@@ -231,53 +225,246 @@ impl Game {
         } else {
             let max_mv_val = best_moves_id
                 .iter()
-                .map(|id| Game::move_to_value(moves.get(*id).unwrap()))
+                .map(|id| GameTurn::move_to_value(moves.get(*id).unwrap()))
                 .max()
                 .unwrap();
             let val_id = best_moves_id
                 .iter()
-                .find(|&id| Game::move_to_value(moves.get(*id).unwrap()) == max_mv_val)
+                .find(|&id| GameTurn::move_to_value(moves.get(*id).unwrap()) == max_mv_val)
                 .unwrap();
 
             moves[*val_id].clone()
         }
     }
 
-    fn move_with_leading_approach(games: &mut Vec<Self>) -> String {
-        let mut weakest_lead = 0;
-        let mut weakest_game = None;
-        for game in games {
-            if game.track.is_some() {
-                let mut my_lead = 0;
-                let my_p = game.my_player.pos;
-                let p2 = game.other_players[0].pos;
-                let p3 = game.other_players[1].pos;
-                let mut positions = [my_p, p2, p3];
-                positions.sort();
-                if my_p == positions[2] {
-                    my_lead = my_p - positions[1];
-                } else {
-                    my_lead = my_p - positions[2];
+    // decide based on avg progress
+    fn progress_approach(game_turns: &mut Vec<Self>) -> String {
+        let mut moves = Vec::new();
+        let mut avg_progresses = Vec::new();
+        let mut stumbles: Vec<u8> = Vec::new();
+
+        // storing curr moves each of which best suit atleast one game
+        for game_turn in game_turns.iter_mut() {
+            let closest_hurdle = game_turn
+                .find_closest_hurdle()
+                .or_else(|| Some(game_turn.track.as_ref().unwrap().len()))
+                .unwrap();
+            game_turn.closest_hurdle = Some(closest_hurdle);
+
+            let dist = closest_hurdle - game_turn.my_player.pos as usize;
+            let curr_move = GameTurn::move_based_on_dist(dist);
+            moves.push(curr_move);
+        }
+
+        // Choose the move which stumbles the least && let us lead others
+        for this_move in moves.iter() {
+            let mut num_stumbles = 0;
+            let mut avg_progess = GameTurn::move_to_value(this_move) as i32;
+            let mut extra_leads = 0;
+
+            for game_turn in game_turns.iter() {
+                let mut game_lead = 0;
+                let mut new_game_lead = 0;
+                let my_pos = game_turn.my_player.pos;
+                let my_stun = game_turn.my_player.stun;
+                let my_new_pos = my_pos + GameTurn::move_to_value(this_move) as i32;
+                let hurdle_pos = game_turn.closest_hurdle.unwrap() as i32;
+                let mv_is_up = *this_move == GameTurn::up();
+                let mut stumbled = false;
+
+                // stumbles affecting progress
+                if my_new_pos >= hurdle_pos && !mv_is_up {
+                    num_stumbles += 1;
+                    stumbled = true;
+                } else if mv_is_up && my_new_pos == hurdle_pos {
+                    num_stumbles += 1;
+                    stumbled = true;
                 }
 
-                if game.my_player.stun == 0 && (weakest_game.is_none() || my_lead < weakest_lead) {
-                    weakest_lead = my_lead;
-                    weakest_game = Some(game.clone());
+                // progress compared to peers should be decent
+                let p2 = game_turn.other_players[0].pos;
+                let p3 = game_turn.other_players[1].pos;
+
+                let mut s2 = game_turn.other_players[0].stun;
+                if !s2.is_positive() {
+                    s2 = 0;
+                };
+                let mut s3 = game_turn.other_players[1].stun;
+                if !s3.is_positive() {
+                    s3 = 0;
+                };
+                let mut positions = [my_pos, p2, p3];
+                positions.sort();
+
+                if my_pos == positions[2] {
+                    if positions[1] == p2 && s2.is_positive() {
+                        game_lead = my_pos - positions[1] + s2;
+                    } else if positions[1] == p3 && s3.is_positive() {
+                        game_lead = my_pos - positions[1] + s3;
+                    }
+                } else {
+                    if positions[2] == p2 && s2.is_positive() {
+                        game_lead = my_pos - positions[2] + s2;
+                    } else if positions[2] == p3 && s3.is_positive() {
+                        game_lead = my_pos - positions[2] + s3;
+                    }
                 }
+
+                if stumbled {
+                    if hurdle_pos == positions[2] {
+                        new_game_lead = hurdle_pos - positions[1];
+                    } else {
+                        new_game_lead = hurdle_pos - positions[2];
+                    }
+                } else if my_new_pos == positions[2] {
+                    new_game_lead = my_new_pos - positions[1];
+                } else {
+                    new_game_lead = my_new_pos - positions[2];
+                }
+
+                extra_leads += new_game_lead - game_lead;
             }
+
+            stumbles.push(num_stumbles);
+            let avg_leads = extra_leads / game_turns.len() as i32;
+            avg_progess = avg_progess - (num_stumbles as i32 * 2 / 4) + avg_leads;
+            avg_progresses.push(avg_progess);
         }
-        weakest_game
-            .map_or(Some("DOWN".to_string()), |mut game| Some(game.decide()))
-            .unwrap()
+
+        let (best_mv_id, least_stumbles) = stumbles.iter().enumerate().min().unwrap();
+
+        let best_moves_id: Vec<usize> = stumbles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| {
+                if v == least_stumbles {
+                    return Some(i);
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if best_moves_id.len() == 1 {
+            // if one move makes least stumbled: do it
+            return moves.get(best_mv_id).unwrap().to_owned();
+        } else {
+            // else choose move which gives max progress
+            let chosen_id = best_moves_id
+                .iter()
+                .map(|id| avg_progresses[*id])
+                .max()
+                .unwrap();
+
+            return moves[chosen_id as usize].to_owned();
+        }
     }
 
-    fn get_safest_move(my_moves: &[String]) -> String {
-        let min_move = my_moves
+    // fn move_with_leading_approach(game_turns: &mut Vec<Self>) -> String {
+    //     let mut weakest_lead = 0;
+    //     let mut weakest_game = None;
+    //     for game_turn in game_turns {
+    //         if game_run.track.is_some() {
+    //             let mut my_lead = 0;
+    //             let my_p = game_run.my_player.pos;
+    //             let p2 = game_run.other_players[0].pos;
+    //             let p3 = game_run.other_players[1].pos;
+    //             let mut positions = [my_p, p2, p3];
+    //             positions.sort();
+    //             if my_p == positions[2] {
+    //                 my_lead = my_p - positions[1];
+    //             } else {
+    //                 my_lead = my_p - positions[2];
+    //             }
+
+    //             if game_run.my_player.stun == 0
+    //                 && (weakest_game.is_none() || my_lead < weakest_lead)
+    //             {
+    //                 weakest_lead = my_lead;
+    //                 weakest_game = Some(game_run.clone());
+    //             }
+    //         }
+    //     }
+    //     weakest_game
+    //         .map_or(Some("DOWN".to_string()), |mut game_run| {
+    //             Some(game_run.decide())
+    //         })
+    //         .unwrap()
+    // }
+}
+
+#[derive(Debug, Default, Clone)]
+struct MiniGameScore {
+    game_id: u8,
+    score: u32,
+    gold: u8,
+    silver: u8,
+    bronze: u8,
+    latest_run_turn: GameTurn,
+}
+
+#[derive(Debug, Default, Clone)]
+struct GameRun {
+    game_id: u8,
+    turns: Vec<GameTurn>,
+}
+
+impl GameRun {
+    fn new(game_id: u8) -> Self {
+        GameRun {
+            game_id,
+            turns: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct TotalPlayerInfo {
+    player_id: i32,
+    gold: u32,
+    silver: u32,
+    bronze: u32,
+    final_score: u32,
+    games_info: Vec<MiniGameScore>,
+}
+
+impl TotalPlayerInfo {
+    fn new(id: i32, final_score: u32, gold: u32, silver: u32, bronze: u32) -> Self {
+        TotalPlayerInfo {
+            player_id: id,
+            final_score,
+            gold,
+            silver,
+            bronze,
+            games_info: Vec::new(),
+        }
+    }
+
+    fn calculate_final_score(&mut self) {
+        self.final_score = self
+            .games_info
             .iter()
-            .map(Game::move_to_value)
-            .min()
-            .expect("Not empty vector");
-        Game::value_to_move(min_move)
+            .fold(1u32, |acc, game| acc * game.score);
+    }
+
+    fn add_gold_medal(&mut self, game_id: u8) {
+        self.gold += 1;
+        self.games_info[game_id as usize].gold += 1;
+        self.calculate_final_score();
+    }
+
+    fn add_silver_medal(&mut self, game_id: u8) {
+        self.silver += 1;
+        self.games_info[game_id as usize].silver += 1;
+        self.calculate_final_score();
+    }
+
+    fn add_bronze_medal(&mut self, game_id: u8) {
+        self.bronze += 1;
+        self.games_info[game_id as usize].bronze += 1;
+    }
+
+    fn add_game_score(&mut self, game_id: usize, score: u32) {
+        self.games_info[game_id].score += score;
     }
 }
 
@@ -291,15 +478,16 @@ fn main() {
     io::stdin().read_line(&mut input_line).unwrap();
     let player_idx = parse_input!(input_line, i32);
 
-    // the number of simultaneously running mini-game = 1 (default)
+    // the number of simultaneously running mini-game_run = 4 (depends)
     let mut input_line = String::new();
     io::stdin().read_line(&mut input_line).unwrap();
     let nb_games = parse_input!(input_line, i32);
 
-    // game loop
+    let mut num_runs = 0;
+    // game_run loop
     loop {
-        // let mut player_scores: Vec<PlayerScore> = Vec::new();
-        // get score info of each player before start of games
+        // get score info of each player before start of game_runs
+        let mut player_infos: Vec<TotalPlayerInfo> = Vec::new();
         for i in 0..3 as usize {
             // contains a breakdown of each player's final score
             let mut input_line = String::new();
@@ -312,25 +500,23 @@ fn main() {
             let nb_silver_medals = parse_input!(inputs[2], u32);
             let nb_bronze_medals = parse_input!(inputs[3], u32);
 
-            // let player_score = PlayerScore::new(
-            //     final_score,
-            //     nb_gold_medals,
-            //     nb_silver_medals,
-            //     nb_bronze_medals,
-            // );
-            // player_scores.push(player_score);
+            let player_info = TotalPlayerInfo::new(
+                i as i32,
+                final_score,
+                nb_gold_medals,
+                nb_silver_medals,
+                nb_bronze_medals,
+            );
+            player_infos.push(player_info);
         }
 
-        // my games:
-        // - if i am stunned in a game, doesn't take that game into consideration
-        // - if i am next to a hurdle in any game, then just jump
-        // - play the best move that doesn't leave me stunned in any game
-        //    - find the nearest hurdle in all games and move according to that hurdle
+        // choose my move for all 4 game_runs
+        let mut my_game_turns: Vec<GameTurn> = Vec::new();
+        // let mut mini_games: Vec<MiniGamesScore> = [0, 1, 2, 3u8].iter().map(|&i| ).collect();
 
-        // choose my move for all 4 games
-        let mut my_games: Vec<Game> = Vec::new();
-
-        // start each mini-game
+        // start each mini-game_run:
+        // - multiple runs in one mini-game
+        // - multiple turns in one run
         for _i in 0..nb_games as usize {
             let mut input_line = String::new();
             io::stdin().read_line(&mut input_line).unwrap();
@@ -359,7 +545,7 @@ fn main() {
 
             let mut players = vec![];
             for _i in ids {
-                let p = PlayerDetails {
+                let p = PlayerTurn {
                     id: _i,
                     pos: positions[_i as usize],
                     stun: stuns[_i as usize],
@@ -369,16 +555,17 @@ fn main() {
             let my_player = players.remove(player_idx as usize);
 
             if gpu != "GAME_OVER" && my_player.stun == 0 {
-                let mut game = Game::new(_i as u8, my_player, players);
-                game.add_track(gpu);
-                my_games.push(game);
+                let mut game_run = GameTurn::new(_i as u8, num_runs, my_player, players);
+                game_run.add_track(gpu);
+                my_game_turns.push(game_run);
+            } else if gpu == "GAME_OVER" {
+                // GAME_OVER => Game run has finished, get medals and maybe start a game run
+                num_runs += 1;
+                my_game_turns.clear();
             }
         }
-        let safest_move = Game::move_with_safest_approach(&mut my_games);
-        Game::make_move(safest_move);
-
-        // let leading_move = Game::move_with_leading_approach(&mut my_games);
-        // Game::make_move(leading_move);
+        let safest_move = GameTurn::safe_approach(&mut my_game_turns);
+        GameTurn::make_move(safest_move);
     }
 }
 
@@ -425,99 +612,101 @@ mod test_hurdle_up {
 
     #[test]
     fn test_up() {
-        let details = PlayerDetails::new(4, 0, 0);
+        let details = PlayerTurn::new(4, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
-        dbg!(game.find_closest_hurdle());
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
+        dbg!(game_run.find_closest_hurdle());
 
-        assert_eq!(game.decide(), UP.to_string());
+        assert_eq!(game_run.decide(), UP.to_string());
 
-        let details = PlayerDetails::new(29, 0, 0);
+        let details = PlayerTurn::new(29, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
 
-        dbg!(game.find_closest_hurdle());
-        assert_eq!(game.decide(), UP.to_string());
+        dbg!(game_run.find_closest_hurdle());
+        assert_eq!(game_run.decide(), UP.to_string());
     }
 
     #[test]
     fn test_down() {
-        let details = PlayerDetails::new(2, 0, 0);
+        let details = PlayerTurn::new(2, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
-        dbg!(game.find_closest_hurdle());
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
+        dbg!(game_run.find_closest_hurdle());
 
-        assert_eq!(game.decide(), DOWN.to_string());
-        Game::make_move(game.decide());
+        assert_eq!(game_run.decide(), DOWN.to_string());
+        GameTurn::make_move(game_run.decide());
     }
 
     #[test]
     fn test_left() {
-        let details = PlayerDetails::new(3, 0, 0);
+        let details = PlayerTurn::new(3, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
-        dbg!(game.find_closest_hurdle());
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
+        dbg!(game_run.find_closest_hurdle());
 
-        assert_eq!(game.decide(), LEFT.to_string());
+        assert_eq!(game_run.decide(), LEFT.to_string());
     }
 
     #[test]
     fn test_right() {
-        let details = PlayerDetails::new(0, 0, 0);
+        let details = PlayerTurn::new(0, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
 
-        dbg!(game.find_closest_hurdle());
-        assert_eq!(game.decide(), RIGHT.to_string());
+        dbg!(game_run.find_closest_hurdle());
+        assert_eq!(game_run.decide(), RIGHT.to_string());
 
-        let details = PlayerDetails::new(14, 0, 0);
+        let details = PlayerTurn::new(14, 0, 0);
         let track = TRACK1.to_string();
-        let mut game = Game::default();
-        game.add_track(track);
-        game.add_player_details(details);
+        let mut game_run = GameTurn::default();
+        game_run.add_track(track);
+        game_run.add_player_details(details);
 
-        dbg!(game.find_closest_hurdle());
-        assert_eq!(game.decide(), RIGHT.to_string());
+        dbg!(game_run.find_closest_hurdle());
+        assert_eq!(game_run.decide(), RIGHT.to_string());
     }
 
     #[test]
     fn safest_move_in_all_games() {
-        let mut games = create_multiple_games(3);
-        dbg!(games.clone());
-        let safest_move = Game::move_with_safest_approach(&mut games);
+        let mut game_runs = create_multiple_games(3);
+        dbg!(game_runs.clone());
+        let safest_move = GameTurn::safe_approach(&mut game_runs);
         dbg!(safest_move);
-        // assert_eq!(safest_move, UP.to_owned());
-        // assert_eq!(safest_move, DOWN.to_owned());
-        // assert_eq!(safest_move, LEFT.to_owned());
-        // assert_eq!(safest_move, RIGHT.to_owned());
     }
 
-    #[test]
-    fn calculate_move_stats() {}
-
-    fn create_multiple_games(n: u32) -> Vec<Game> {
+    fn create_multiple_games(n: u32) -> Vec<GameTurn> {
         let track = TRACK1.to_string();
-        let mut games = Vec::new();
+        let mut game_runs = Vec::new();
         let mut rng = rand::thread_rng();
         for i in 0..n {
-            let mut game = Game::default();
+            let mut game_run = GameTurn::default();
             let a = rng.gen_range(0..5);
-            let details = PlayerDetails::new(a, 0, 0);
-            game.add_track(track.clone());
-            game.set_id(i as u8);
-            game.add_player_details(details.clone());
-            games.push(game);
+            let details = PlayerTurn::new(a, 0, 0);
+            game_run.add_track(track.clone());
+            game_run.set_run_id(i as u8);
+            game_run.add_player_details(details.clone());
+            game_runs.push(game_run);
         }
-        games
+        game_runs
+    }
+
+    // - no two ## next to each other
+    fn create_random_track() {}
+
+    fn create_random_player_turn(my_pos: usize) -> PlayerTurn {
+        let mut rng = rand::thread_rng();
+        let a = rng.gen_range(my_pos - 3..my_pos + 3);
+        PlayerTurn::new(a as i32, 0, 0)
     }
 }
