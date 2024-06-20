@@ -68,31 +68,26 @@ impl Game {
 
     // move 1 space
     fn left() -> String {
-        // println!("LEFT");
         "LEFT".to_owned()
     }
 
     // moves 3 spaces
     fn right() -> String {
-        // println!("RIGHT");
         "RIGHT".to_owned()
     }
 
     // jump and move 2 spaces
     fn up() -> String {
-        // println!("UP");
         "UP".to_owned()
     }
 
     // move 2 spaces
     fn down() -> String {
-        // println!("DOWN");
         "DOWN".to_owned()
     }
 
     // do nothing
     fn nothing() -> String {
-        // println!("LEFT");
         "LEFT".to_owned()
     }
 
@@ -178,11 +173,9 @@ impl Game {
         }
     }
 
-    // - if due to one's jump then other's who stumble are more: BAD
-    // - if due to one's jump then other's keep running are more: OK
-    // - if nobody's jumping, then choose max distance moving move: OK
     fn move_with_safest_approach(games: &mut Vec<Self>) -> String {
         let mut moves = Vec::new();
+        let mut stumbles: Vec<u8> = Vec::new();
 
         for game in games.iter_mut() {
             let closest_hurdle = game
@@ -193,57 +186,61 @@ impl Game {
 
             let dist = closest_hurdle - game.my_player.pos as usize;
             let curr_move = Game::move_based_on_dist(dist);
-
-            let mut curr_move_stats = MoveStatistics::default();
-            curr_move_stats.set_name(curr_move);
-            dbg!(&curr_move_stats.name);
-
-            moves.push(curr_move_stats.clone());
+            moves.push(curr_move);
         }
+
+        // Choose the move which stumbles the least
+        // Stumble:
+        // if my_new_pos >= hurdle_pos => True iff Move is not UP
+        // else => False 
 
         // calculate each move's stat for each game
-        for this_stats in moves.iter_mut() {
+        for this_move in moves.iter() {
             // complete move's stats for all games
+            let mut num_stumbles = 0;
             for game in games.iter() {
-                let dist = game.closest_hurdle.unwrap() - game.my_player.pos as usize;
-                let fut_dist = dist as i8 - Game::move_to_value(&this_stats.name) as i8;
-                match fut_dist.cmp(&0) {
-                    Ordering::Equal => this_stats.num_stumbling += 1,
-                    Ordering::Greater => this_stats.num_running += 1,
-                    Ordering::Less => this_stats.num_jumping += 1,
+                let my_pos = game.my_player.pos;
+                let my_new_pos = my_pos + Game::move_to_value(this_move) as i32;
+                let hurdle_pos = game.closest_hurdle.unwrap() as i32;
+                let mv_is_up = *this_move == Game::up();
+                if my_new_pos >= hurdle_pos && !mv_is_up {
+                    num_stumbles += 1;
+                }else if mv_is_up && my_new_pos == hurdle_pos {
+                    num_stumbles+=1;
                 }
             }
-            // calculate points for each move stats
+            stumbles.push(num_stumbles);
         }
 
-        // chose the move from moves which is better:
-        // b1: - if due to one's jump then other's who stumble are more: BAD
-        // b2: - if due to one's jump then other's keep running are more: OK
-        // b3: - if nobody's jumping, then choose max safe distance moving move: OK
-        // each condition has different value: b1-10*(diff), b2-5*(diff),b3-2*(diff)
-        // for this_move in moves {
-        //     // let b1 = this_move.num_running < this_move.num_stumbling
-        // }
+        // a single mv or many
+        let (best_mv_id, least_stumbles) = stumbles.iter().enumerate().min().unwrap();
+        let best_moves_id: Vec<usize> = stumbles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| {
+                if v == least_stumbles {
+                    return Some(i);
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mv_count = best_moves_id.len();
+        if mv_count == 1 {
+            moves.get(best_mv_id).unwrap().to_owned()
+        } else {
+            let max_mv_val = best_moves_id
+                .iter()
+                .map(|id| Game::move_to_value(moves.get(*id).unwrap()))
+                .max()
+                .unwrap();
+            let val_id = best_moves_id
+                .iter()
+                .find(|&id| Game::move_to_value(moves.get(*id).unwrap()) == max_mv_val)
+                .unwrap();
 
-        Game::move_based_on_dist(1)
-
-        // if hurdle_freq_map.contains_key(&1) {
-        //     if hurdle_freq_map.contains_key(&2) {
-        //         if hurdle_freq_map.contains_key(&3) {
-        //             Game::right()
-        //         } else {
-        //             Game::down()
-        //         }
-        //     } else {
-        //         Game::left()
-        //     }
-        // } else if hurdle_freq_map.get(&2).is_none()
-        //     || hurdle_freq_map.get(&1).unwrap() > hurdle_freq_map.get(&2).unwrap()
-        // {
-        //     Game::up()
-        // } else {
-        //     Game::left()
-        // }
+            moves[*val_id].clone()
+        }
     }
 
     fn move_with_leading_approach(games: &mut Vec<Self>) -> String {
@@ -281,54 +278,6 @@ impl Game {
             .min()
             .expect("Not empty vector");
         Game::value_to_move(min_move)
-    }
-}
-#[derive(Debug, Clone, Default)]
-
-struct MoveStatistics {
-    game_id: u8,
-    name: String,
-    num_stumbling: u8,
-    g: u8,
-    num_running: u8,
-    points: u8,
-}
-
-impl MoveStatistics {
-    // fn new(name: String, num_jumping: u8, num_running: u8, num_stumbling: u8) -> Self {
-    //     MoveStatistics {
-    //         name,
-    //         num_jumping,
-    //         num_running,
-    //         num_stumbling,
-    //     }
-    // }
-
-    fn set_name(&mut self, name: String) {
-        self.name = name;
-    }
-
-    fn set_points(&mut self, points: u8) {
-        self.points = points;
-    }
-
-    fn set_game_id(&mut self, id: u8) {
-        self.game_id = id;
-    }
-
-    fn calculate_points(&self) -> u8 {
-        // chose the move from moves which is better:
-        // b1: - if due to one's jump then other's who stumble are more: BAD
-        // b2: - if due to one's jump then other's keep running are more: OK
-        // b3: - if nobody's jumping, then choose max safe distance moving move: OK
-        // each condition has different value: b1-10*(diff), b2-5*(diff),b3-2*(diff)
-
-        let mut points = 0;
-        if self.num_jumping < self.num_stumbling {
-            points += 10 * (self.num_stumbling - self.num_jumping)
-        }
-
-        0
     }
 }
 
@@ -425,11 +374,11 @@ fn main() {
                 my_games.push(game);
             }
         }
-        // let safest_move = Game::move_with_safest_approach(&mut my_games);
-        // Game::make_move(safest_move);
+        let safest_move = Game::move_with_safest_approach(&mut my_games);
+        Game::make_move(safest_move);
 
-        let leading_move = Game::move_with_leading_approach(&mut my_games);
-        Game::make_move(leading_move);
+        // let leading_move = Game::move_with_leading_approach(&mut my_games);
+        // Game::make_move(leading_move);
     }
 }
 
@@ -544,7 +493,7 @@ mod test_hurdle_up {
     #[test]
     fn safest_move_in_all_games() {
         let mut games = create_multiple_games(3);
-
+        dbg!(games.clone());
         let safest_move = Game::move_with_safest_approach(&mut games);
         dbg!(safest_move);
         // assert_eq!(safest_move, UP.to_owned());
@@ -554,44 +503,7 @@ mod test_hurdle_up {
     }
 
     #[test]
-    fn calculate_move_stats() {
-        let mut moves = Vec::new();
-        let mut games = create_multiple_games(4);
-
-        // dbg!(games.clone());
-
-        // calculate game's suitable move
-        for game in games.iter_mut() {
-            let closest_hurdle = game.find_closest_hurdle();
-            game.closest_hurdle = closest_hurdle;
-
-            let dist = closest_hurdle.unwrap() - game.my_player.pos as usize;
-            let curr_move = Game::move_based_on_dist(dist);
-
-            let mut curr_move_stats = MoveStatistics::default();
-            curr_move_stats.set_name(curr_move);
-            curr_move_stats.set_game_id(game.id);
-            // dbg!(&curr_move_stats);
-
-            moves.push(curr_move_stats.clone());
-        }
-
-        // calculate each move's stat for each game
-        for this_stats in moves.iter_mut() {
-            // complete move's stats for all games
-            for game in games.iter() {
-                let dist = game.closest_hurdle.unwrap() - game.my_player.pos as usize;
-                let fut_dist = dist as i8 - Game::move_to_value(&this_stats.name) as i8;
-                match fut_dist.cmp(&0) {
-                    Ordering::Greater => this_stats.num_running += 1,
-                    Ordering::Equal => {this_stats.num_saved += 1},
-                    Ordering::Less => this_stats.num_stumbling += 1,
-                }
-            }
-            dbg!(&this_stats);
-            // calculate points for each move stats
-        }
-    }
+    fn calculate_move_stats() {}
 
     fn create_multiple_games(n: u32) -> Vec<Game> {
         let track = TRACK1.to_string();
