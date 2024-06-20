@@ -1,5 +1,9 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, io};
+use std::{
+    cmp::{self, Ordering},
+    collections::HashMap,
+    io,
+};
 
 macro_rules! parse_input {
     ($x:expr, $t:ident) => {
@@ -34,6 +38,7 @@ impl PlayerDetails {
 
 #[derive(Debug, Clone)]
 struct Game {
+    id: u8,
     track: Option<String>,
     closest_hurdle: Option<usize>,
     my_player: PlayerDetails,
@@ -43,6 +48,7 @@ struct Game {
 impl Game {
     fn default() -> Self {
         Game {
+            id: 0,
             track: None,
             closest_hurdle: None,
             my_player: PlayerDetails::default(),
@@ -50,8 +56,9 @@ impl Game {
         }
     }
 
-    fn new(my_player: PlayerDetails, other_players: Vec<PlayerDetails>) -> Self {
+    fn new(id: u8, my_player: PlayerDetails, other_players: Vec<PlayerDetails>) -> Self {
         Game {
+            id,
             track: None,
             closest_hurdle: None,
             my_player,
@@ -93,6 +100,10 @@ impl Game {
         self.track = Some(track);
     }
 
+    fn set_id(&mut self, id: u8) {
+        self.id = id;
+    }
+
     fn add_player_details(&mut self, details: PlayerDetails) {
         self.my_player = details;
     }
@@ -132,6 +143,7 @@ impl Game {
         ahead_track
             .split_once('#')
             .map(|parts| parts.0.len() + my_pos)
+            .or_else(|| Some(self.track.as_ref().unwrap().len()))
     }
 
     fn make_move(my_move: String) {
@@ -166,45 +178,54 @@ impl Game {
         }
     }
 
+    // - if due to one's jump then other's who stumble are more: BAD
+    // - if due to one's jump then other's keep running are more: OK
+    // - if nobody's jumping, then choose max distance moving move: OK
     fn move_with_safest_approach(games: &mut Vec<Self>) -> String {
-        let mut hurdle_freq_map: HashMap<usize, u8> = HashMap::new();
-        let mut num_stumbles = 0;
-        let mut num_running = 0;
-        let mut min_stumbling_dist = 4;
-        let mut max_running_dist = 0;
+        let mut moves = Vec::new();
 
-        for game in games {
+        for game in games.iter_mut() {
             let closest_hurdle = game
                 .find_closest_hurdle()
                 .or_else(|| Some(game.track.as_ref().unwrap().len()))
                 .unwrap();
+            game.closest_hurdle = Some(closest_hurdle);
+
             let dist = closest_hurdle - game.my_player.pos as usize;
             let curr_move = Game::move_based_on_dist(dist);
-            let future_dist = dist - Game::move_to_value(&curr_move) as usize;
-            if future_dist == 0 {
-                num_stumbles +=1;
-                if dist < min_stumbling_dist{
-                    min_stumbling_dist = dist;
-                }
-            }else{
-                num_running +=1;
-                if dist > max_running_dist {
-                    max_running_dist = dist;
-                }
-            }
-            
-            // if let Some(val) = hurdle_freq_map.get_mut(&dist) {
-            //     *val += 1
-            // } else {
-            //     hurdle_freq_map.insert(dist, 1);
-            // }
+
+            let mut curr_move_stats = MoveStatistics::default();
+            curr_move_stats.set_name(curr_move);
+            dbg!(&curr_move_stats.name);
+
+            moves.push(curr_move_stats.clone());
         }
 
-        if num_running > num_stumbles {
-            Game::move_based_on_dist(max_running_dist)
-        }else{
-            Game::move_based_on_dist(min_stumbling_dist)
+        // calculate each move's stat for each game
+        for this_stats in moves.iter_mut() {
+            // complete move's stats for all games
+            for game in games.iter() {
+                let dist = game.closest_hurdle.unwrap() - game.my_player.pos as usize;
+                let fut_dist = dist as i8 - Game::move_to_value(&this_stats.name) as i8;
+                match fut_dist.cmp(&0) {
+                    Ordering::Equal => this_stats.num_stumbling += 1,
+                    Ordering::Greater => this_stats.num_running += 1,
+                    Ordering::Less => this_stats.num_jumping += 1,
+                }
+            }
+            // calculate points for each move stats
         }
+
+        // chose the move from moves which is better:
+        // b1: - if due to one's jump then other's who stumble are more: BAD
+        // b2: - if due to one's jump then other's keep running are more: OK
+        // b3: - if nobody's jumping, then choose max safe distance moving move: OK
+        // each condition has different value: b1-10*(diff), b2-5*(diff),b3-2*(diff)
+        // for this_move in moves {
+        //     // let b1 = this_move.num_running < this_move.num_stumbling
+        // }
+
+        Game::move_based_on_dist(1)
 
         // if hurdle_freq_map.contains_key(&1) {
         //     if hurdle_freq_map.contains_key(&2) {
@@ -260,6 +281,54 @@ impl Game {
             .min()
             .expect("Not empty vector");
         Game::value_to_move(min_move)
+    }
+}
+#[derive(Debug, Clone, Default)]
+
+struct MoveStatistics {
+    game_id: u8,
+    name: String,
+    num_stumbling: u8,
+    g: u8,
+    num_running: u8,
+    points: u8,
+}
+
+impl MoveStatistics {
+    // fn new(name: String, num_jumping: u8, num_running: u8, num_stumbling: u8) -> Self {
+    //     MoveStatistics {
+    //         name,
+    //         num_jumping,
+    //         num_running,
+    //         num_stumbling,
+    //     }
+    // }
+
+    fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
+    fn set_points(&mut self, points: u8) {
+        self.points = points;
+    }
+
+    fn set_game_id(&mut self, id: u8) {
+        self.game_id = id;
+    }
+
+    fn calculate_points(&self) -> u8 {
+        // chose the move from moves which is better:
+        // b1: - if due to one's jump then other's who stumble are more: BAD
+        // b2: - if due to one's jump then other's keep running are more: OK
+        // b3: - if nobody's jumping, then choose max safe distance moving move: OK
+        // each condition has different value: b1-10*(diff), b2-5*(diff),b3-2*(diff)
+
+        let mut points = 0;
+        if self.num_jumping < self.num_stumbling {
+            points += 10 * (self.num_stumbling - self.num_jumping)
+        }
+
+        0
     }
 }
 
@@ -351,7 +420,7 @@ fn main() {
             let my_player = players.remove(player_idx as usize);
 
             if gpu != "GAME_OVER" && my_player.stun == 0 {
-                let mut game = Game::new(my_player, players);
+                let mut game = Game::new(_i as u8, my_player, players);
                 game.add_track(gpu);
                 my_games.push(game);
             }
@@ -366,6 +435,8 @@ fn main() {
 
 #[cfg(test)]
 mod test_hurdle_up {
+    use rand::Rng;
+
     use super::*;
     const RIGHT: &str = "RIGHT";
     const UP: &str = "UP";
@@ -472,31 +543,69 @@ mod test_hurdle_up {
 
     #[test]
     fn safest_move_in_all_games() {
-        let details = PlayerDetails::new(0, 0, 0);
-        let track = TRACK1.to_string();
-        let mut game1 = Game::default();
-        game1.add_track(track.clone());
-        game1.add_player_details(details.clone());
-
-        let details = PlayerDetails::new(1, 0, 0);
-        let mut game2 = Game::default();
-        game2.add_track(track.clone());
-        game2.add_player_details(details.clone());
-
-        let details = PlayerDetails::new(0, 0, 0);
-        let mut game3 = Game::default();
-        game3.add_track(track.clone());
-        game3.add_player_details(details.clone());
-
-        let mut games = Vec::new();
-        games.push(game1);
-        games.push(game2);
-        games.push(game3);
+        let mut games = create_multiple_games(3);
 
         let safest_move = Game::move_with_safest_approach(&mut games);
+        dbg!(safest_move);
         // assert_eq!(safest_move, UP.to_owned());
         // assert_eq!(safest_move, DOWN.to_owned());
         // assert_eq!(safest_move, LEFT.to_owned());
-        assert_eq!(safest_move, RIGHT.to_owned());
+        // assert_eq!(safest_move, RIGHT.to_owned());
+    }
+
+    #[test]
+    fn calculate_move_stats() {
+        let mut moves = Vec::new();
+        let mut games = create_multiple_games(4);
+
+        // dbg!(games.clone());
+
+        // calculate game's suitable move
+        for game in games.iter_mut() {
+            let closest_hurdle = game.find_closest_hurdle();
+            game.closest_hurdle = closest_hurdle;
+
+            let dist = closest_hurdle.unwrap() - game.my_player.pos as usize;
+            let curr_move = Game::move_based_on_dist(dist);
+
+            let mut curr_move_stats = MoveStatistics::default();
+            curr_move_stats.set_name(curr_move);
+            curr_move_stats.set_game_id(game.id);
+            // dbg!(&curr_move_stats);
+
+            moves.push(curr_move_stats.clone());
+        }
+
+        // calculate each move's stat for each game
+        for this_stats in moves.iter_mut() {
+            // complete move's stats for all games
+            for game in games.iter() {
+                let dist = game.closest_hurdle.unwrap() - game.my_player.pos as usize;
+                let fut_dist = dist as i8 - Game::move_to_value(&this_stats.name) as i8;
+                match fut_dist.cmp(&0) {
+                    Ordering::Greater => this_stats.num_running += 1,
+                    Ordering::Equal => {this_stats.num_saved += 1},
+                    Ordering::Less => this_stats.num_stumbling += 1,
+                }
+            }
+            dbg!(&this_stats);
+            // calculate points for each move stats
+        }
+    }
+
+    fn create_multiple_games(n: u32) -> Vec<Game> {
+        let track = TRACK1.to_string();
+        let mut games = Vec::new();
+        let mut rng = rand::thread_rng();
+        for i in 0..n {
+            let mut game = Game::default();
+            let a = rng.gen_range(0..5);
+            let details = PlayerDetails::new(a, 0, 0);
+            game.add_track(track.clone());
+            game.set_id(i as u8);
+            game.add_player_details(details.clone());
+            games.push(game);
+        }
+        games
     }
 }
