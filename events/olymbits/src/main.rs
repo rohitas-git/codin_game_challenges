@@ -127,7 +127,7 @@ impl GameTurn {
     fn find_closest_hurdle(&self) -> Option<usize> {
         let track = self.track.as_ref().unwrap();
         let my_pos = self.my_player.pos as usize;
-        let ahead_track = &track[my_pos..];
+        let ahead_track = &track[my_pos + 1..];
         ahead_track
             .split_once('#')
             .map(|parts| parts.0.len() + my_pos)
@@ -196,9 +196,8 @@ impl GameTurn {
                 let my_new_pos = my_pos + GameTurn::move_to_value(this_move) as i32;
                 let hurdle_pos = game_run.closest_hurdle.unwrap() as i32;
                 let mv_is_up = *this_move == GameTurn::up();
-                if my_new_pos >= hurdle_pos && !mv_is_up {
-                    num_stumbles += 1;
-                } else if mv_is_up && my_new_pos == hurdle_pos {
+                if (my_new_pos >= hurdle_pos && !mv_is_up) || (mv_is_up && my_new_pos == hurdle_pos)
+                {
                     num_stumbles += 1;
                 }
                 // think of how any additional stumble in this game run affects
@@ -211,13 +210,7 @@ impl GameTurn {
         let best_moves_id: Vec<usize> = stumbles
             .iter()
             .enumerate()
-            .filter_map(|(i, v)| {
-                if v == least_stumbles {
-                    return Some(i);
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(i, v)| if v == least_stumbles { Some(i) } else { None })
             .collect();
         let mv_count = best_moves_id.len();
         if mv_count == 1 {
@@ -238,7 +231,7 @@ impl GameTurn {
     }
 
     // decide based on avg progress
-    fn progress_approach(game_turns: &mut Vec<Self>) -> String {
+    fn progress_approach(game_turns: &mut [Self]) -> String {
         let mut moves = Vec::new();
         let mut avg_progresses = Vec::new();
         let mut stumbles: Vec<u8> = Vec::new();
@@ -273,10 +266,8 @@ impl GameTurn {
                 let mut stumbled = false;
 
                 // stumbles affecting progress
-                if my_new_pos >= hurdle_pos && !mv_is_up {
-                    num_stumbles += 1;
-                    stumbled = true;
-                } else if mv_is_up && my_new_pos == hurdle_pos {
+                if (my_new_pos >= hurdle_pos && !mv_is_up) || (mv_is_up && my_new_pos == hurdle_pos)
+                {
                     num_stumbles += 1;
                     stumbled = true;
                 }
@@ -302,12 +293,10 @@ impl GameTurn {
                     } else if positions[1] == p3 && s3.is_positive() {
                         game_lead = my_pos - positions[1] + s3;
                     }
-                } else {
-                    if positions[2] == p2 && s2.is_positive() {
-                        game_lead = my_pos - positions[2] + s2;
-                    } else if positions[2] == p3 && s3.is_positive() {
-                        game_lead = my_pos - positions[2] + s3;
-                    }
+                } else if positions[2] == p2 && s2.is_positive() {
+                    game_lead = my_pos - positions[2] + s2;
+                } else if positions[2] == p3 && s3.is_positive() {
+                    game_lead = my_pos - positions[2] + s3;
                 }
 
                 if stumbled {
