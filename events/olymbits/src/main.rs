@@ -574,19 +574,25 @@ mod test_hurdle_up {
     fn right_closest_hurdle() {
         let track = TRACK1.to_string();
         let my_pos = 2;
-        let ahead_track = &track[my_pos + 1..];
-        let h_pos = ahead_track
-            .split_once('#')
-            .map(|parts| parts.0.len() + my_pos + 1);
-        assert_eq!(h_pos.unwrap(), 5);
+        let mut h_pos = 4;
+        for i in my_pos+1..(my_pos+4){
+            if i < track.len() && track.get(i..i+1).unwrap() == "#"{
+                h_pos = i - my_pos;
+                break;
+            }
+        }
+        assert_eq!(h_pos, 3);
+        
 
-        let track = TRACK1.to_string();
         let my_pos = 7;
-        let ahead_track = &track[my_pos + 1..];
-        let h_pos = ahead_track
-            .split_once('#')
-            .map(|parts| parts.0.len() + my_pos + 1);
-        assert_eq!(h_pos.unwrap(), 9);
+        let mut h_pos = 4;
+        for i in my_pos+1..(my_pos+4){
+            if i < track.len() && track.get(i..i+1).unwrap() == "#"{
+                h_pos = i - my_pos;
+                break;
+            }
+        }
+        assert_eq!(h_pos, 2);
 
         let track = TRACK1.to_string();
         let my_pos = 11;
