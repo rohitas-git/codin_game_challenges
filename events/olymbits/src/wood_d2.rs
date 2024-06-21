@@ -93,46 +93,16 @@ impl Game {
         self.my_player = details;
     }
 
-    fn decide(&mut self) {
-        if self.track.is_some() {
-            let my_pos = self.my_player.my_pos as usize;
-            let track = self.track.as_ref().unwrap();
-            let mut closest_hurdle = 0;
-            dbg!(my_pos);
-
-            // find closest hurdle if unknown
-            if self.closest_hurdle.is_none() {
-                self.closest_hurdle = self.find_closest_hurdle();
-            }
-
-            // when no hurlde then is it len of track or len of track + 1
-            let closest_hurdle = self
-                .closest_hurdle
-                .map_or(self.track.as_ref().unwrap().len(), |val| val);
-
-            let dist = closest_hurdle - my_pos;
-            match dist {
-                1 => {
-                    Self::up();
-                    self.closest_hurdle = None;
-                }
-                2 => Self::left(),
-                3 => Self::down(),
-                _ => Self::right(),
-            }
-            return;
-        }
-        Self::nothing();
-    }
+    
 
     fn find_closest_hurdle(&self) -> Option<usize> {
         let track = self.track.as_ref().unwrap();
         let my_pos = self.my_player.my_pos as usize;
-        let track = &track[my_pos..];
+        let track = &track[my_pos+1..];
         track.split_once('#').map(|parts| parts.0.len())
     }
 
-    fn decide_v2(&mut self) -> String {
+    fn decide(&mut self) -> String {
         if self.track.is_some() {
             let my_pos = self.my_player.my_pos as usize;
 
