@@ -1,0 +1,6 @@
+[package]
+name = "shadow_of_the_knight"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
